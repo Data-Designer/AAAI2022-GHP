@@ -1,0 +1,165 @@
+   -- drop table if exists up_nsh_ads.ads_nsh_guildhealth_guildinfo_add_d purge
+
+-- select * from up_nsh_ads.ads_nsh_guildhealth_guildinfo_add_d where server = 242
+
+create table if not exists up_nsh_ads.ads_nsh_guildhealth_guildinfo_add_d 
+(
+    guild_id        bigint,
+    guild_name      string,
+    leader_id       bigint,
+    scale           int,
+    guild_type      int,
+    g_force         int,
+    total_count     int,
+    
+    rq_value        int,
+    cai_qi_value    int,
+    member_num      int,
+    max_xue_tu_member   int,
+    guild_member_cnt    int,
+    xuetu_num       int,
+    build_info      string,
+    zi_cai          int,
+    fund            int,
+    prosperity      int,
+    full_degree     double,
+    low_maintain_state  string,
+    server          int,
+    create_date     string,
+    liansairank     int,
+    joinmem         bigint,
+    leavemem        bigint,
+    chatnum         bigint,
+    chuangongnum    bigint,
+    ability         double,
+    today_online_cnt int,
+    max_guild_member_cnt,int
+)
+partitioned by (ds string)
+stored as parquet
+TBLPROPERTIES ("parquet.compression"="SNAPPY")
+;
+
+
+INSERT overwrite TABLE up_nsh_ads.ads_nsh_guildhealth_guildinfo_add_d partition (ds='{{ds}}')
+
+select 
+
+-- guild_info.*,creation.create_date,rankinfo.liansairank,join_info.joinmem,leaveinfo.leavemem, chatInfor.chatnum,chuangonginfo.chuangongnum,abilityinfo.ability
+
+guild_info.guild_id,guild_name,leader_id,scale,guild_type,g_force,total_count,rq_value,cai_qi_value,
+member_num,max_xue_tu_member,guild_member_cnt,xuetu_num,build_info,zi_cai,fund,prosperity,full_degree,low_maintain_state,server,
+create_date,liansairank,joinmem,leavemem,chatnum,chuangongnum,ability,today_online_cnt,max_guild_member_cnt
+
+from
+-- 帮会信息
+(
+    select a.guild_id,a.guild_name,a.ds,a.leader_id,a.scale,a.guild_type,a.g_force,a.total_count,a.rq_value,a.cai_qi_value,a.member_num,a.max_xue_tu_member,
+    a.guild_member_cnt,a.xuetu_num,a.build_info,a.zi_cai,a.fund,a.prosperity,a.full_degree,a.low_maintain_state,a.server,a.today_online_cnt,a.max_guild_member_cnt
+    from(
+        SELECT * ,row_number() over(PARTITION BY guild_id order by ts desc)as rank 
+        from luoge_nsh_ods.ods_nsh_guildinfo WHERE ds='{{ds}}'
+    )a
+    where a.rank=1
+) as guild_info
+LEFT JOIN
+(   SELECT guild_id,
+           max(ds) create_date
+    FROM luoge_nsh_ods.ods_nsh_guildcreate
+    WHERE ds <= '{{ds}}'
+    GROUP BY guild_id
+) creation ON guild_info.guild_id = creation.guild_id 
+left join
+--帮会联赛排名，替换为天
+(
+    SELECT a.guild_id,a.rank as liansairank from
+    (
+        SELECT *,row_number() over (PARTITION BY guild_id ORDER BY ds desc) as ranker
+        from luoge_nsh_dwd.dwd_nsh_guild_league_rank_add_w 
+        where ds='{{ds}}'
+    )a
+    WHERE a.ranker=1
+) as rankinfo
+on guild_info.guild_id = rankinfo.guild_id
+-- 帮会加入人数
+left join
+(
+    select guild_id,count(*) as joinmem from luoge_nsh_ods.ods_nsh_joinguild
+    where ds='{{ds}}'
+    group by guild_id
+) as join_info
+on guild_info.guild_id = join_info.guild_id
+-- 帮会流失人数
+left join
+(
+    select guild_id,count(*) as leavemem from luoge_nsh_ods.ods_nsh_leaveguild
+    where ds='{{ds}}'
+    group by guild_id
+) leaveinfo
+on guild_info.guild_id= leaveinfo.guild_id 
+--聊天数
+left join
+(
+    SELECT guild_id,count(1) as chatnum from
+    (
+        SELECT a.role_id,a.guild_id from
+        (
+            SELECT * ,row_number() over(PARTITION BY role_id order by ts desc)as rank 
+            from luoge_nsh_ods.ods_nsh_login WHERE ds='{{ds}}'
+        )a
+        where a.rank=1
+    ) as role_info
+    left join
+    (
+        select role_id,length from luoge_nsh_ods.ods_nsh_channelchat
+        where channel_id = 15 and ds = '{{ds}}'
+    ) as chatinfo
+    on role_info.role_id = chatinfo.role_id
+    GROUP BY guild_id
+) as chatInfor
+on guild_info.guild_id = cast(chatInfor.guild_id as bigint)
+-- 传功次数
+left join
+(
+    select guild_id,count(1) as chuangongnum from
+    (
+        select a.role_level,a.role_clasee,a.role_gender,a.role_account_vip_level,a.role_id,a.guild_id
+        from(
+        SELECT * ,row_number() over(PARTITION BY role_id order by ts desc)as rank 
+        from luoge_nsh_ods.ods_nsh_login WHERE ds='{{ds}}'
+        )a
+        where a.rank=1
+    ) as login_info
+    left join
+    (
+        select role_id from luoge_nsh_ods.ods_nsh_chuangong
+        where ds ='{{ds}}' and type='Send'
+    ) as chuangong
+    on login_info.role_id = chuangong.role_id
+    group by guild_id
+) as chuangonginfo
+on guild_info.guild_id = cast(chuangonginfo.guild_id as bigint)
+left join
+-- 计算平均总分
+(
+    select guild_id,avg(role_total_score)as ability from
+    (
+        select role_id,role_total_score 
+        from luoge_nsh_mid.mid_role_portrait_all_d 
+        where ds = '{{ds}}'
+    ) score_info
+    left join 
+    (
+    select a.role_id,a.guild_id,a.server
+        from(
+            SELECT * ,row_number() over(PARTITION BY role_id order by ts desc)as rank 
+            from luoge_nsh_ods.ods_nsh_login WHERE ds='{{ds}}'
+        )a
+        where a.rank=1
+    ) as login_info
+    on score_info.role_id = login_info.role_id
+    group by guild_id
+)as abilityinfo
+on guild_info.guild_id = cast(abilityinfo.guild_id as bigint)
+where server = 314
+;   

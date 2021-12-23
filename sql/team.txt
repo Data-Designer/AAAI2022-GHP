@@ -1,0 +1,106 @@
+ -- drop table if exists up_nsh_ads.ads_nsh_guildhealth_team_add_d purge
+
+-- select * from up_nsh_ads.ads_nsh_guildhealth_team_add_d where server = 242
+
+create table if not exists up_nsh_ads.ads_nsh_guildhealth_team_add_d 
+(
+    role_id_src    bigint,
+    role_id_dst    bigint,
+    weight         bigint,
+    server         int,
+    src_role_level      int,
+    src_role_clasee     int,
+    src_role_gender     string,
+    src_vip_level       int,
+    src_guild           string,
+    src_role_skill      double,
+    src_role_practice   double,
+    src_role_equip      double,
+    src_total_score     double,
+    dst_role_level      int,
+    dst_role_clasee     int,
+    dst_role_gender     string,
+    dst_vip_level       int,
+    dst_guild           string,
+    dst_role_skill      double,
+    dst_role_practice   double,
+    dst_role_equip      double,
+    dst_total_score     double
+)
+partitioned by (ds string)
+stored as parquet
+TBLPROPERTIES ("parquet.compression"="SNAPPY")
+;
+
+
+INSERT overwrite TABLE up_nsh_ads.ads_nsh_guildhealth_team_add_d partition (ds='{{ds}}')
+
+select 
+
+team.role_id_src,team.role_id_dst,team.weight,team.server,
+src_role_level,src_role_clasee,src_role_gender,src_vip_level,src_guild,src_role_skill,src_role_practice,src_role_equip,src_total_score,
+dst_role_level,dst_role_clasee,dst_role_gender,dst_vip_level,dst_guild,dst_role_skill,dst_role_practice,dst_role_equip,dst_total_score
+
+from
+(
+    --组队信息
+    select role_id as role_id_src,cast(new_ids as bigint) as role_id_dst ,count(1) as weight ,max(server) as server from
+    (
+        select server,role_id,new_ids from
+        luoge_nsh_ods.ods_nsh_jointeam
+        lateral view 
+        explode(split(ids ,"\\|")) t as new_ids 
+        where ds = '{{ds}}' and server = 314
+    ) as sptable
+    where role_id  != cast(new_ids as bigint)
+    group by role_id,new_ids
+) as team
+join
+(
+    select login_info.*,skill_info.src_role_skill,skill_info.src_role_practice,skill_info.src_role_equip,skill_info.src_total_score
+    from
+    -- 玩家信息
+    (
+        select a.role_level as src_role_level,a.role_clasee as src_role_clasee,a.role_gender as src_role_gender,a.role_account_vip_level as src_vip_level,a.role_id,a.guild_id as src_guild,a.server
+        from(
+            SELECT * ,row_number() over(PARTITION BY role_id order by ts desc)as rank 
+            from luoge_nsh_ods.ods_nsh_login WHERE ds='{{ds}}' and server = 314
+        )a
+        where a.rank=1
+    ) as login_info
+    left join
+    -- 玩家技能信息
+    (
+        SELECT role_id,role_skill_score as src_role_skill,role_practice_score as src_role_practice,role_equip_score as src_role_equip,role_total_score as src_total_score
+        FROM luoge_nsh_mid.mid_role_portrait_all_d 
+        where ds = '{{ds}}' and server = 314
+    ) as skill_info
+    on login_info.role_id = skill_info.role_id
+) as logininfo
+on team.role_id_src = logininfo.role_id
+join
+(
+    select login_info.*,skill_info.dst_role_skill,skill_info.dst_role_practice,skill_info.dst_role_equip,skill_info.dst_total_score
+    from
+    -- 玩家信息
+    (
+        select a.role_level as dst_role_level,a.role_clasee as dst_role_clasee,a.role_gender as dst_role_gender,a.role_account_vip_level as dst_vip_level,a.role_id,a.guild_id as dst_guild,a.server
+        from(
+            SELECT * ,row_number() over(PARTITION BY role_id order by ts desc)as rank 
+            from luoge_nsh_ods.ods_nsh_login WHERE ds='{{ds}}' and server = 314
+        )a
+        where a.rank=1
+    ) as login_info
+    left join
+    -- 玩家技能信息
+    (
+        SELECT role_id,role_skill_score as dst_role_skill,role_practice_score as dst_role_practice,role_equip_score as dst_role_equip,role_total_score as dst_total_score
+        FROM luoge_nsh_mid.mid_role_portrait_all_d 
+        where ds = '{{ds}}' and server = 314
+    ) as skill_info
+    on login_info.role_id = skill_info.role_id
+) as logininfo2
+on team.role_id_dst = logininfo2.role_id
+where team.server = 314
+;
+ 

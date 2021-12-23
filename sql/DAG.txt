@@ -1,0 +1,23 @@
+up_nsh_guildhealth
+DAG任务名称和表名一致ads_nsh_guildhealth_guildinfo_zc_add_d
+DAG运行前Drop掉原有表 创建表规则
+
+下面各种表的信息
+up_nsh_ads.ads_nsh_guildhealth_relation_friend_add_d
+up_nsh_ads.ads_nsh_guildhealth_relation_trade_add_d
+up_nsh_ads.ads_nsh_guildhealth_relation_add_d
+up_nsh_ads.ads_nsh_guildhealth_guildinfo_add_d
+up_nsh_ads.ads_nsh_guildhealth_team_add_d
+
+-- refresh up_nsh_ads.ads_nsh_guildhealth_guildinfo_add_d;
+select guild_info.* from
+(
+select guild_id
+from up_nsh_ads.ads_nsh_guildhealth_guildinfo_add_d
+where ds = '2020-10-15' and DATEDIFF(ds,create_date)>=14) as guild_list
+inner join
+(
+select * 
+from up_nsh_ads.ads_nsh_guildhealth_guildinfo_add_d
+where ds = '2020-10-15') as guild_info
+on guild_list.guild_id = guild_info.guild_id

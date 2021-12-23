@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="4d9ee814-b71e-435e-bcba-4931cbf81ac2" name="guildhealth">
+        <fileTransfer accessType="SFTP" host="ai.danlu.netease.com" port="17151" sshConfigId="4afb2c62-dab6-4197-9d54-a4148dcfd6d5" sshConfig="root@ai.danlu.netease.com:17151 key" keyPair="true">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
